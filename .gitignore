@@ -1,0 +1,24 @@
+```gitignore
+# Java
+*.class
+*.jar
+*.war
+*.ear
+
+# IDEs
+/.idea/
+/*.iml
+/.vscode/
+/target/
+/out/
+/bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Other
+*.swp

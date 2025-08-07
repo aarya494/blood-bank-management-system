@@ -21,12 +21,13 @@ public class DashboardPanel extends JPanel {
 
         JButton btnRequest = new JButton("Request Blood");
         JButton btnDonate = new JButton("Donate Blood");
+        JButton btnViewRequests = new JButton("View Requests");
         JButton btnInventory = new JButton("View Inventory");
         JButton btnDonors = new JButton("View Donors");
         JButton btnDonations = new JButton("View Donations");
         JButton btnLogout = new JButton("Logout");
 
-        for (JButton btn : new JButton[]{btnRequest, btnDonate, btnInventory, btnDonors, btnDonations, btnLogout}) {
+        for (JButton btn : new JButton[]{btnRequest, btnDonate,btnViewRequests, btnInventory, btnDonors, btnDonations, btnLogout}) {
             btn.setAlignmentX(Component.CENTER_ALIGNMENT);
             sidebar.add(Box.createVerticalStrut(10));
             sidebar.add(btn);
@@ -75,6 +76,8 @@ public class DashboardPanel extends JPanel {
         donatePanel.add(new JLabel("")); donatePanel.add(lblDonateStatus);
         content.add(donatePanel, "donate");
 
+        
+
         // Inventory Panel
         JPanel inventoryPanel = new JPanel(new BorderLayout());
         JTable inventoryTable = new JTable();
@@ -92,6 +95,76 @@ public class DashboardPanel extends JPanel {
         JTable donationsTable = new JTable();
         donationsPanel.add(new JScrollPane(donationsTable), BorderLayout.CENTER);
         content.add(donationsPanel, "donations");
+
+        // View Requests Panel
+        JPanel viewRequestsPanel = new JPanel(new BorderLayout());
+        JTable requestTable = new JTable();
+        viewRequestsPanel.add(new JScrollPane(requestTable), BorderLayout.CENTER);
+        JButton btnFulfill = new JButton("Fulfill Selected Request");
+        JLabel lblFulfillStatus = new JLabel();
+        JPanel bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.add(btnFulfill, BorderLayout.CENTER);
+        bottomPanel.add(lblFulfillStatus, BorderLayout.SOUTH);
+        viewRequestsPanel.add(bottomPanel, BorderLayout.SOUTH);
+        content.add(viewRequestsPanel, "requests");
+
+        btnFulfill.addActionListener(e -> {
+          int selectedRow = requestTable.getSelectedRow();
+          if (selectedRow == -1) {
+              lblFulfillStatus.setText("⚠️ Select a request to fulfill.");
+              return;
+          }
+
+    int requestId = (int) requestTable.getValueAt(selectedRow, 0);
+    String bloodGroup = (String) requestTable.getValueAt(selectedRow, 2);
+    int unitsNeeded = (int) requestTable.getValueAt(selectedRow, 3);
+    String currentStatus = (String) requestTable.getValueAt(selectedRow, 5);
+
+    if (!currentStatus.equalsIgnoreCase("Pending")) {
+        lblFulfillStatus.setText("⚠️ This request is already fulfilled.");
+        return;
+    }
+
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
+        conn.setAutoCommit(false);
+
+        String checkStock = "SELECT units_available FROM blood_inventory WHERE blood_group = ?";
+        PreparedStatement checkStmt = conn.prepareStatement(checkStock);
+        checkStmt.setString(1, bloodGroup);
+        ResultSet rs = checkStmt.executeQuery();
+
+        if (rs.next()) {
+            int available = rs.getInt("units_available");
+            if (available >= unitsNeeded) {
+                String updateInv = "UPDATE blood_inventory SET units_available = units_available - ? WHERE blood_group = ?";
+                PreparedStatement updateStmt = conn.prepareStatement(updateInv);
+                updateStmt.setInt(1, unitsNeeded);
+                updateStmt.setString(2, bloodGroup);
+                updateStmt.executeUpdate();
+
+                String updateReq = "UPDATE blood_requests SET status = 'Fulfilled' WHERE request_id = ?";
+                PreparedStatement updateReqStmt = conn.prepareStatement(updateReq);
+                updateReqStmt.setInt(1, requestId);
+                updateReqStmt.executeUpdate();
+
+                conn.commit();
+                lblFulfillStatus.setText("✅ Request fulfilled.");
+                refreshTable(requestTable, "SELECT * FROM blood_requests");
+            } else {
+                lblFulfillStatus.setText("❌ Not enough units available.");
+                conn.rollback();
+            }
+        } else {
+            lblFulfillStatus.setText("❌ Blood group not found.");
+        }
+
+    } catch (SQLException ex) {
+        lblFulfillStatus.setText("❌ DB Error: " + ex.getMessage());
+        ex.printStackTrace();
+    }
+});
+
+
 
         add(content, BorderLayout.CENTER);
         CardLayout contentLayout = (CardLayout) content.getLayout();
@@ -111,6 +184,11 @@ public class DashboardPanel extends JPanel {
             refreshTable(donationsTable, "SELECT donations.donation_id, donors.name, donations.blood_group, donations.units, donations.donation_date, donations.expiry_date FROM donations JOIN donors ON donations.donor_id = donors.donor_id");
             contentLayout.show(content, "donations");
         });
+        btnViewRequests.addActionListener(e -> {
+            refreshTable(requestTable, "SELECT * FROM blood_requests");
+            contentLayout.show(content, "requests");
+        });
+
         btnLogout.addActionListener(e -> cardLayout.show(mainPanel, "login"));
 
         // Blood Request Submit Logic
